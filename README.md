@@ -13,9 +13,31 @@ ByteBay is a home NAS management stack originally built for a **[Kobol Helios64]
 
 ## Screenshots / Captures d'écran
 
-| Connexion | Bureau (partages, utilisateurs, RAID) | Tableau de bord, journaux, explorateur |
-|:---:|:---:|:---:|
-| ![Écran de connexion](docs/images/login_screen.png) | ![Fenêtres de gestion](docs/images/window1.png) | ![Tableau de bord et explorateur](docs/images/window2.png) |
+### Connexion · Login
+
+<p align="center">
+  <img src="docs/images/login_screen.png" alt="Écran de connexion ByteBay" width="640">
+</p>
+
+<p align="center"><em>Page de connexion au panel d'administration — administration panel login.</em></p>
+
+### Bureau · Desktop
+
+<p align="center">
+  <img src="docs/images/window1.png" alt="Partages NFS, utilisateurs, droits d'accès et RAID" width="900">
+</p>
+
+<p align="center"><em>Multi-fenêtres : partages NFS, comptes unifiés, ACL et état RAID.</em><br>
+<em>Multi-window desktop: NFS shares, unified accounts, ACLs, and RAID status.</em></p>
+
+### Tableau de bord · Dashboard
+
+<p align="center">
+  <img src="docs/images/window2.png" alt="Tableau de bord, journaux et explorateur de fichiers" width="900">
+</p>
+
+<p align="center"><em>Services, CPU, montages, journaux en direct et explorateur de fichiers.</em><br>
+<em>Services, CPU, mounts, live logs, and file explorer.</em></p>
 
 ---
 
