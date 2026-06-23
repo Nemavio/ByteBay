@@ -6,12 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 )
-
-var syncRe = regexp.MustCompile(`(recovery|resync|reshape|check)\s*=\s*([\d.]+)%`)
 
 type Member struct {
 	Slot   int    `json:"slot"`

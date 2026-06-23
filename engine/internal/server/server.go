@@ -13,6 +13,7 @@ import (
 
 	"github.com/bytebay/bytebay/engine/internal/config"
 	"github.com/bytebay/bytebay/engine/internal/files"
+	"github.com/bytebay/bytebay/engine/internal/logbuf"
 	"github.com/bytebay/bytebay/engine/internal/shares"
 	"github.com/bytebay/bytebay/engine/internal/users"
 	"github.com/bytebay/bytebay/engine/internal/volumes"
@@ -29,15 +30,23 @@ func New(socket, token string) *Server {
 	s := &Server{socket: socket, token: token}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/services/status", s.auth(s.handleServicesStatus))
 	mux.HandleFunc("GET /api/v1/shares", s.auth(s.handleSharesList))
 	mux.HandleFunc("PUT /api/v1/shares/{kind}", s.auth(s.handleSharesPut))
 	mux.HandleFunc("POST /api/v1/shares/apply", s.auth(s.handleSharesApply))
 	mux.HandleFunc("POST /api/v1/users/sync", s.auth(s.handleUsersSync))
+	mux.HandleFunc("GET /api/v1/users/state", s.auth(s.handleUsersState))
 	mux.HandleFunc("GET /api/v1/files", s.auth(s.handleFilesList))
+	mux.HandleFunc("GET /api/v1/files/stat", s.auth(s.handleFilesStat))
 	mux.HandleFunc("POST /api/v1/files/mkdir", s.auth(s.handleFilesMkdir))
 	mux.HandleFunc("POST /api/v1/files/upload", s.auth(s.handleFilesUpload))
+	mux.HandleFunc("PUT /api/v1/files", s.auth(s.handleFilesPut))
+	mux.HandleFunc("DELETE /api/v1/files", s.auth(s.handleFilesDelete))
+	mux.HandleFunc("POST /api/v1/files/move", s.auth(s.handleFilesMove))
 	mux.HandleFunc("GET /api/v1/files/download", s.auth(s.handleFilesDownload))
 	mux.HandleFunc("GET /api/v1/volumes", s.auth(s.handleVolumesList))
+	mux.HandleFunc("GET /api/v1/logs/sources", s.auth(s.handleLogSources))
+	mux.HandleFunc("GET /api/v1/logs", s.auth(s.handleLogs))
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 30 * time.Second}
 	return s
 }
@@ -87,6 +96,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+func (s *Server) handleServicesStatus(w http.ResponseWriter, _ *http.Request) {
+	st, err := shares.ServiceStatus()
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
 func (s *Server) handleSharesList(w http.ResponseWriter, _ *http.Request) {
 	cfg, err := shares.Load()
 	if err != nil {
@@ -133,6 +151,12 @@ func (s *Server) handleUsersSync(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "synced"})
 }
 
+func (s *Server) handleUsersState(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"persisted": users.HasPersistedSync(),
+	})
+}
+
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	list, err := files.List(path)
@@ -141,6 +165,16 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleFilesStat(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	ent, err := files.Stat(path)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ent)
 }
 
 func (s *Server) handleFilesMkdir(w http.ResponseWriter, r *http.Request) {
@@ -173,6 +207,52 @@ func (s *Server) handleFilesUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "uploaded", "path": full})
 }
 
+func (s *Server) handleFilesPut(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	if err := files.SaveUpload(path, r.Body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path required"})
+		return
+	}
+	if err := files.Delete(path); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if body.From == "" || body.To == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "from and to required"})
+		return
+	}
+	if err := files.Move(body.From, body.To); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "moved"})
+}
+
 func (s *Server) handleFilesDownload(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if err := files.Serve(w, path); err != nil {
@@ -187,6 +267,33 @@ func (s *Server) handleVolumesList(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleLogSources(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, []map[string]string{
+		{"id": "bytebay-engine-proc", "label": "Engine (processus)", "group": "bytebay"},
+	})
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	sinceStr := strings.TrimSpace(r.URL.Query().Get("since"))
+	var since time.Time
+	if sinceStr != "" {
+		if t, err := time.Parse(time.RFC3339Nano, sinceStr); err == nil {
+			since = t
+		} else if t, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = t
+		}
+	}
+	entries := []map[string]string{}
+	for _, e := range logbuf.Since(since) {
+		entries = append(entries, map[string]string{
+			"source": "bytebay-engine-proc",
+			"time":   e.Time.Format(time.RFC3339Nano),
+			"line":   e.Line,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

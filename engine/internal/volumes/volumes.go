@@ -31,5 +31,8 @@ func List() ([]Volume, error) {
 			Path: filepath.Join(root, e.Name()),
 		})
 	}
+	if out == nil {
+		out = []Volume{}
+	}
 	return out, nil
 }

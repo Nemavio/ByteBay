@@ -2,12 +2,16 @@ package main
 
 import (
 	"flag"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bytebay/bytebay/agent/internal/config"
+	"github.com/bytebay/bytebay/agent/internal/housekeeper"
+	"github.com/bytebay/bytebay/agent/internal/logbuf"
 	"github.com/bytebay/bytebay/agent/internal/mounts"
 	"github.com/bytebay/bytebay/agent/internal/server"
 	"github.com/bytebay/bytebay/agent/internal/smart"
@@ -18,6 +22,8 @@ func main() {
 	token := flag.String("token", os.Getenv("BYTEBAY_AGENT_TOKEN"), "API bearer token (optional)")
 	flag.Parse()
 
+	log.SetOutput(io.MultiWriter(os.Stderr, logbuf.Writer()))
+
 	if err := os.MkdirAll("/run/bytebay", 0o755); err != nil {
 		log.Fatalf("mkdir socket dir: %v", err)
 	}
@@ -27,9 +33,22 @@ func main() {
 	if err := os.MkdirAll(mounts.VolumesRoot(), 0o755); err != nil {
 		log.Fatalf("mkdir volumes root: %v", err)
 	}
+	if err := mounts.MigrateRaidSources(); err != nil {
+		log.Printf("mount source migration: %v", err)
+	}
 	if err := mounts.Restore(); err != nil {
 		log.Printf("mount restore: %v", err)
 	}
+	mounts.PruneOrphans()
+
+	if report, err := housekeeper.Scan(); err == nil {
+		for _, item := range report.Items {
+			if item.Severity == housekeeper.SeverityAction {
+				log.Printf("housekeeper: action required: %s", item.Message)
+			}
+		}
+	}
+	go housekeeper.RunPeriodic(2 * time.Minute)
 
 	smart.LoadPersisted()
 	smart.StartMonitor(config.SmartIntervalSec())

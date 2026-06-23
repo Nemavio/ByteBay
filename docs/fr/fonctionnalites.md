@@ -4,6 +4,12 @@
 
 Interface type bureau avec barre de tâches et fenêtres redimensionnables. Raccourcis clavier : **Échap** ferme la fenêtre au premier plan.
 
+![Écran de connexion](../images/login_screen.png)
+
+![Fenêtres de gestion](../images/window1.png)
+
+![Tableau de bord, journaux et explorateur](../images/window2.png)
+
 | Application | Description |
 |-------------|-------------|
 | Tableau de bord | État agent / engine |

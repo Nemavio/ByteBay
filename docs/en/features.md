@@ -4,6 +4,12 @@
 
 Synology-like desktop with taskbar and resizable windows. **Escape** closes the topmost window.
 
+![Login screen](../images/login_screen.png)
+
+![Management windows](../images/window1.png)
+
+![Dashboard, logs, and file explorer](../images/window2.png)
+
 | App | Description |
 |-----|-------------|
 | Dashboard | Agent / engine health |

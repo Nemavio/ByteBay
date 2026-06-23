@@ -2,14 +2,29 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+import asyncio
+import logging
+import mimetypes
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("image/heic", ".heic")
+mimetypes.add_type("image/heif", ".heif")
+mimetypes.add_type("image/avif", ".avif")
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("video/x-matroska", ".mkv")
+mimetypes.add_type("video/quicktime", ".mov")
+mimetypes.add_type("video/x-msvideo", ".avi")
+mimetypes.add_type("audio/flac", ".flac")
+mimetypes.add_type("audio/opus", ".opus")
+mimetypes.add_type("audio/aac", ".aac")
+
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.acl import is_admin, path_allowed, require_admin, require_web
+from app.acl import check_file_access, is_admin, path_allowed, require_admin, require_web
 from app.agent_client import agent, engine
 from app.auth import create_access_token, verify_password
 from app.database import (
@@ -27,13 +42,34 @@ from app.database import (
     update_user,
     users_for_engine,
 )
+from app import logbuf
+from app.logs_api import fetch_entries, list_sources
+from app.config import settings
+from app.webdav import router as webdav_router
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
+log = logging.getLogger("bytebay")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logbuf.install()
     await init_db()
+    try:
+        import aiosqlite
+
+        async with aiosqlite.connect(settings.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            passwords = {}
+            try:
+                state = await engine.get("/api/v1/users/state")
+                if not state.get("persisted"):
+                    passwords[settings.admin_user] = settings.admin_password
+            except Exception:
+                passwords[settings.admin_user] = settings.admin_password
+            await sync_engine_users(db, passwords)
+    except Exception as exc:
+        log.warning("engine user sync on startup: %s", exc)
     yield
     await agent.close()
     await engine.close()
@@ -47,6 +83,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(webdav_router)
 
 
 class LoginForm(BaseModel):
@@ -87,6 +125,10 @@ class RaidAdd(BaseModel):
     device: str
 
 
+class ConfirmPassword(BaseModel):
+    password: str
+
+
 class MountCreate(BaseModel):
     name: str
     source: str
@@ -115,16 +157,16 @@ async def sync_engine_users(db, passwords: dict[str, str] | None = None):
                 "ftp": bool(r["ftp_enabled"]),
             }
         )
-    acl = [dict(a) for a in acl_rows]
+    acl = [
+        {
+            "path": a["path"],
+            "username": a["username"],
+            "can_read": bool(a["can_read"]),
+            "can_write": bool(a["can_write"]),
+        }
+        for a in acl_rows
+    ]
     await engine.post("/api/v1/users/sync", {"users": users, "acl": acl})
-
-
-async def check_file_access(user, db, path: str, write: bool = False):
-    if is_admin(user):
-        return
-    acl = await get_acl_for_user(db, user["username"])
-    if not path_allowed(acl, path, write):
-        raise HTTPException(403, "Access denied")
 
 
 @app.post("/api/v1/auth/login")
@@ -178,12 +220,17 @@ async def users_update(user_id: int, body: UserUpdate, user=Depends(require_admi
         fields["samba_enabled"] = int(body.samba_enabled)
     if body.ftp_enabled is not None:
         fields["ftp_enabled"] = int(body.ftp_enabled)
+    cur = await db.execute("SELECT username, samba_enabled, ftp_enabled FROM users WHERE id = ?", (user_id,))
+    row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "User not found")
+    if body.samba_enabled and int(body.samba_enabled) and not row["samba_enabled"] and not body.password:
+        raise HTTPException(400, "Mot de passe requis pour activer l'accès Samba")
+    if body.ftp_enabled and int(body.ftp_enabled) and not row["ftp_enabled"] and not body.password:
+        raise HTTPException(400, "Mot de passe requis pour activer l'accès FTP")
     if body.password:
         fields["password_hash"] = pwd_context.hash(body.password)
-        cur = await db.execute("SELECT username FROM users WHERE id = ?", (user_id,))
-        row = await cur.fetchone()
-        if row:
-            passwords[row[0]] = body.password
+        passwords[row["username"]] = body.password
     await update_user(db, user_id, **fields)
     await sync_engine_users(db, passwords)
     return {"ok": True}
@@ -200,7 +247,16 @@ async def users_delete(user_id: int, user=Depends(require_admin), db=Depends(get
 
 @app.get("/api/v1/acl")
 async def acl_list(user=Depends(require_admin), db=Depends(get_db)):
-    return [dict(r) for r in await list_acl(db)]
+    return [
+        {
+            "id": r["id"],
+            "path": r["path"],
+            "username": r["username"],
+            "can_read": bool(r["can_read"]),
+            "can_write": bool(r["can_write"]),
+        }
+        for r in await list_acl(db)
+    ]
 
 
 @app.post("/api/v1/acl")
@@ -249,8 +305,11 @@ async def files_upload(
 @app.get("/api/v1/files/download")
 async def files_download(path: str, user=Depends(require_web), db=Depends(get_db)):
     await check_file_access(user, db, path)
-    data = await engine.get_raw(f"/api/v1/files/download?path={quote(path, safe='/')}")
-    return Response(content=data, media_type="application/octet-stream")
+    qpath = quote(path, safe="/")
+    stat = await engine.get(f"/api/v1/files/stat?path={qpath}")
+    media_type = stat.get("mime") or mimetypes.guess_type(path)[0] or "application/octet-stream"
+    data = await engine.get_raw(f"/api/v1/files/download?path={qpath}")
+    return Response(content=data, media_type=media_type)
 
 
 @app.get("/api/v1/disks")
@@ -278,13 +337,35 @@ async def raid_create(body: RaidCreate, user=Depends(require_admin)):
     return await agent.post("/api/v1/raid", body.model_dump(exclude_none=True))
 
 
+@app.get("/api/v1/raid/jobs/{job_id}")
+async def raid_job(job_id: str, user=Depends(require_web)):
+    return await agent.get(f"/api/v1/raid/jobs/{job_id}")
+
+
+@app.get("/api/v1/housekeeping")
+async def housekeeping(user=Depends(require_web)):
+    return await agent.get("/api/v1/housekeeping")
+
+
+@app.post("/api/v1/housekeeping/recover-raid")
+async def housekeeping_recover_raid(body: dict, user=Depends(require_admin)):
+    return await agent.post("/api/v1/housekeeping/recover-raid", body)
+
+
 @app.post("/api/v1/raid/{name}/add")
 async def raid_add(name: str, body: RaidAdd, user=Depends(require_admin)):
     return await agent.post(f"/api/v1/raid/{name}/add", body.model_dump())
 
 
+@app.post("/api/v1/raid/{name}/sync")
+async def raid_sync(name: str, body: dict, user=Depends(require_admin)):
+    return await agent.post(f"/api/v1/raid/{name}/sync", body)
+
+
 @app.delete("/api/v1/raid/{name}")
-async def raid_stop(name: str, user=Depends(require_admin)):
+async def raid_stop(name: str, body: ConfirmPassword, user=Depends(require_admin), db=Depends(get_db)):
+    if not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(403, "Mot de passe incorrect")
     return await agent.delete(f"/api/v1/raid/{name}")
 
 
@@ -344,7 +425,7 @@ async def shares_list(user=Depends(require_web)):
 
 
 @app.put("/api/v1/shares/{kind}")
-async def shares_put(kind: str, body: Any, user=Depends(require_admin)):
+async def shares_put(kind: str, body: Any = Body(...), user=Depends(require_admin)):
     return await engine.put(f"/api/v1/shares/{kind}", body)
 
 
@@ -353,23 +434,69 @@ async def shares_apply(user=Depends(require_admin)):
     return await engine.post("/api/v1/shares/apply")
 
 
+@app.get("/api/v1/logs/sources")
+async def logs_sources(user=Depends(require_web)):
+    return await list_sources()
+
+
+@app.get("/api/v1/logs")
+async def logs_fetch(
+    since: str = "",
+    sources: str = "",
+    user=Depends(require_web),
+):
+    return await fetch_entries(since=since, sources=sources)
+
+
+@app.get("/api/v1/dashboard")
+async def dashboard(user=Depends(require_web)):
+    host = {}
+    services = {}
+    agent_ok = False
+    engine_ok = False
+    try:
+        await asyncio.wait_for(agent.get("/health"), timeout=5.0)
+        agent_ok = True
+        host = await agent.get("/api/v1/dashboard")
+    except HTTPException:
+        pass
+    except Exception:
+        pass
+    try:
+        await asyncio.wait_for(engine.get("/health"), timeout=5.0)
+        engine_ok = True
+        services = await engine.get("/api/v1/services/status")
+    except HTTPException:
+        pass
+    except Exception:
+        pass
+    return {
+        "platform": {"web": True, "agent": agent_ok, "engine": engine_ok},
+        "host": host,
+        "services": services,
+    }
+
+
 @app.get("/api/v1/health")
 async def health():
     agent_ok = engine_ok = False
     try:
-        await agent.get("/health")
+        await asyncio.wait_for(agent.get("/health"), timeout=5.0)
         agent_ok = True
     except Exception:
         pass
     try:
-        await engine.get("/health")
+        await asyncio.wait_for(engine.get("/health"), timeout=5.0)
         engine_ok = True
     except Exception:
         pass
-    return {"web": "ok", "agent": agent_ok, "engine": engine_ok}
+    return {"web": True, "agent": agent_ok, "engine": engine_ok}
 
 
 if STATIC.exists():
+    fonts_dir = STATIC / "fonts"
+    if fonts_dir.exists():
+        app.mount("/fonts", StaticFiles(directory=fonts_dir), name="fonts")
     app.mount("/assets", StaticFiles(directory=STATIC / "assets"), name="assets")
 
     @app.get("/{full_path:path}")

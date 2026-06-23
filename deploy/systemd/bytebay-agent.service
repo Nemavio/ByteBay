@@ -8,7 +8,8 @@ Type=simple
 ExecStart=/usr/local/bin/bytebay-agent -socket /run/bytebay/agent.sock
 EnvironmentFile=-/etc/bytebay/agent.env
 RuntimeDirectory=bytebay
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0775
+RuntimeDirectoryPreserve=yes
 Restart=on-failure
 RestartSec=5
 

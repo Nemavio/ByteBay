@@ -45,7 +45,7 @@ func ServiceStatus() (*ServicesSnapshot, error) {
 			Shares:  sambaEnabled,
 		},
 		NFS: ShareService{
-			Running: supervisorRunning("nfs"),
+			Running: supervisorRunning("ganesha"),
 			Enabled: nfsEnabled > 0,
 			Shares:  nfsEnabled,
 		},

@@ -11,6 +11,12 @@ ByteBay is a home NAS management stack originally built for a **[Kobol Helios64]
 | **Agent / dev notes** | [AGENTS.md](AGENTS.md) |
 | **License** | [MIT](LICENSE) |
 
+## Screenshots / Captures d'écran
+
+| Connexion | Bureau (partages, utilisateurs, RAID) | Tableau de bord, journaux, explorateur |
+|:---:|:---:|:---:|
+| ![Écran de connexion](docs/images/login_screen.png) | ![Fenêtres de gestion](docs/images/window1.png) | ![Tableau de bord et explorateur](docs/images/window2.png) |
+
 ---
 
 ## Français

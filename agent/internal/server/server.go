@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/bytebay/bytebay/agent/internal/config"
+	"github.com/bytebay/bytebay/agent/internal/dashboard"
 	"github.com/bytebay/bytebay/agent/internal/disks"
+	"github.com/bytebay/bytebay/agent/internal/housekeeper"
+	"github.com/bytebay/bytebay/agent/internal/logs"
 	"github.com/bytebay/bytebay/agent/internal/mounts"
 	"github.com/bytebay/bytebay/agent/internal/network"
 	"github.com/bytebay/bytebay/agent/internal/raid"
@@ -36,10 +39,12 @@ func New(socket, token string) *Server {
 	mux.HandleFunc("GET /api/v1/smart", s.auth(s.handleSmartAll))
 	mux.HandleFunc("GET /api/v1/smart/alerts", s.auth(s.handleSmartAlerts))
 	mux.HandleFunc("GET /api/v1/raid", s.auth(s.handleRaidList))
+	mux.HandleFunc("GET /api/v1/raid/jobs/{id}", s.auth(s.handleRaidJob))
 	mux.HandleFunc("GET /api/v1/raid/{name}", s.auth(s.handleRaidDetail))
 	mux.HandleFunc("POST /api/v1/raid", s.auth(s.handleRaidCreate))
 	mux.HandleFunc("DELETE /api/v1/raid/{name}", s.auth(s.handleRaidStop))
 	mux.HandleFunc("POST /api/v1/raid/{name}/add", s.auth(s.handleRaidAdd))
+	mux.HandleFunc("POST /api/v1/raid/{name}/sync", s.auth(s.handleRaidSync))
 	mux.HandleFunc("GET /api/v1/mounts", s.auth(s.handleMountsList))
 	mux.HandleFunc("POST /api/v1/mounts", s.auth(s.handleMountsCreate))
 	mux.HandleFunc("GET /api/v1/mounts/jobs/{id}", s.auth(s.handleMountJob))
@@ -47,6 +52,11 @@ func New(socket, token string) *Server {
 	mux.HandleFunc("GET /api/v1/network", s.auth(s.handleNetworkGet))
 	mux.HandleFunc("PUT /api/v1/network", s.auth(s.handleNetworkPut))
 	mux.HandleFunc("POST /api/v1/network/apply", s.auth(s.handleNetworkApply))
+	mux.HandleFunc("GET /api/v1/dashboard", s.auth(s.handleDashboard))
+	mux.HandleFunc("GET /api/v1/housekeeping", s.auth(s.handleHousekeeping))
+	mux.HandleFunc("POST /api/v1/housekeeping/recover-raid", s.auth(s.handleHousekeepingRecoverRAID))
+	mux.HandleFunc("GET /api/v1/logs/sources", s.auth(s.handleLogSources))
+	mux.HandleFunc("GET /api/v1/logs", s.auth(s.handleLogs))
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	return s
 }
@@ -108,13 +118,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
+	snap, err := dashboard.Collect()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
 func (s *Server) handleDisks(w http.ResponseWriter, _ *http.Request) {
 	list, err := disks.List()
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, ensureSlice(list))
 }
 
 func (s *Server) handleDiskSmart(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +171,7 @@ func (s *Server) handleRaidList(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, ensureSlice(list))
 }
 
 func (s *Server) handleRaidDetail(w http.ResponseWriter, r *http.Request) {
@@ -171,12 +190,22 @@ func (s *Server) handleRaidCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	arr, err := raid.Create(req)
+	job, err := raid.StartCreateJob(req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusCreated, arr)
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) handleRaidJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	job, err := raid.GetCreateJob(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) handleRaidStop(w http.ResponseWriter, r *http.Request) {
@@ -203,13 +232,30 @@ func (s *Server) handleRaidAdd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, arr)
 }
 
+func (s *Server) handleRaidSync(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Action == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "action required (check, repair, idle)"})
+		return
+	}
+	detail, err := raid.SetSyncAction(name, body.Action)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
 func (s *Server) handleMountsList(w http.ResponseWriter, _ *http.Request) {
 	list, err := mounts.List()
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, ensureSlice(list))
 }
 
 func (s *Server) handleMountsCreate(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +306,11 @@ func (s *Server) handleNetworkGet(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	st.Interfaces = ensureSlice(st.Interfaces)
+	st.Connections = ensureSlice(st.Connections)
+	if st.DNS == nil {
+		st.DNS = []string{}
+	}
 	writeJSON(w, http.StatusOK, st)
 }
 
@@ -289,13 +340,69 @@ func (s *Server) handleNetworkApply(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "applied"})
 }
 
+func (s *Server) handleHousekeeping(w http.ResponseWriter, _ *http.Request) {
+	report, err := housekeeper.Scan()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if report.Items == nil {
+		report.Items = []housekeeper.Item{}
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) handleHousekeepingRecoverRAID(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		UUID  string `json:"uuid"`
+		Force bool   `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "uuid required"})
+		return
+	}
+	arr, err := housekeeper.RecoverRAID(body.UUID, body.Force)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, arr)
+}
+
+func (s *Server) handleLogSources(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, logs.Sources())
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	since, _ := logs.ParseSince(r.URL.Query().Get("since"))
+	selected := logs.SelectedFromCSV(r.URL.Query().Get("sources"), logs.Sources())
+	entries, err := logs.Fetch(selected, since)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if entries == nil {
+		entries = []logs.Entry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 
 func writeErr(w http.ResponseWriter, err error) {
 	log.Printf("api error: %v", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+}
+
+func ensureSlice[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }

@@ -10,6 +10,20 @@ Welcome to the English documentation for **ByteBay**.
 
 [Documentation française](../fr/README.md)
 
+## Interface preview
+
+![ByteBay login screen](../images/login_screen.png)
+
+*Administration panel login page.*
+
+![Management windows — NFS shares, users, access rights, RAID](../images/window1.png)
+
+*Multi-window desktop: NFS shares, unified accounts, ACLs, and RAID status.*
+
+![Dashboard, logs, and file explorer](../images/window2.png)
+
+*Dashboard (services, CPU, mounts), live logs, and file explorer.*
+
 ## Summary
 
 ByteBay is a **DIY NAS** panel for personal use, built for a **Kobol Helios64** on **Armbian/Debian**. The goal is to keep the host thin: a small agent handles hardware; everything else runs in Docker.

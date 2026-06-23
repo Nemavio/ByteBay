@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { api } from '../lib/api.js'
+  import ConfirmModal from '../lib/ConfirmModal.svelte'
 
   let status = $state(null)
   let loading = $state(true)
@@ -13,16 +14,41 @@
   let dns = $state('')
   let connections = $state([])
 
+  let confirm = $state({ open: false, title: '', message: '', variant: 'danger', confirmLabel: 'Supprimer', onOk: null })
+
+  function openConfirm({ title, message, onOk }) {
+    confirm = { open: true, title, message, variant: 'danger', confirmLabel: 'Supprimer', onOk }
+  }
+
+  function closeConfirm() {
+    confirm = { ...confirm, open: false, onOk: null }
+  }
+
+  function handleConfirm() {
+    const fn = confirm.onOk
+    closeConfirm()
+    fn?.()
+  }
+
+  /** Copie profonde sans structuredClone (incompatible avec les proxies Svelte). */
+  function cloneData(value) {
+    return JSON.parse(JSON.stringify(value ?? null))
+  }
+
+  function applyStatus(data) {
+    status = cloneData(data)
+    dns = (status.dns || []).join(', ')
+    connections = cloneData(status.connections || [])
+    if (connections.length && editIdx >= connections.length) editIdx = 0
+  }
+
   onMount(() => { load() })
 
   async function load() {
     loading = true
     error = ''
     try {
-      status = await api.network()
-      dns = (status.dns || []).join(', ')
-      connections = structuredClone(status.connections || [])
-      if (connections.length && editIdx >= connections.length) editIdx = 0
+      applyStatus(await api.network())
     } catch (e) {
       error = e.message
     } finally {
@@ -54,9 +80,15 @@
   }
 
   function removeConn(i) {
-    if (!confirm(`Supprimer ${connections[i].name || 'cette connexion'} ?`)) return
-    connections = connections.filter((_, j) => j !== i)
-    editIdx = Math.max(0, editIdx - 1)
+    const label = connections[i].name || 'cette connexion'
+    openConfirm({
+      title: 'Supprimer la connexion',
+      message: `Supprimer ${label} ?`,
+      onOk: () => {
+        connections = connections.filter((_, j) => j !== i)
+        editIdx = Math.max(0, editIdx - 1)
+      },
+    })
   }
 
   function toggleSlave(i, iface) {
@@ -81,9 +113,7 @@
           mtu: c.mtu ? Number(c.mtu) : undefined,
         })),
       }
-      status = await api.networkPut(body)
-      connections = structuredClone(status.connections || [])
-      dns = (status.dns || []).join(', ')
+      applyStatus(await api.networkPut(body))
       msg = 'Configuration réseau appliquée (netplan)'
     } catch (e) {
       error = e.message
@@ -111,8 +141,11 @@
 
 {#if loading}
   <p>Chargement…</p>
-{:else}
-  <div class="tabs">
+  {:else}
+    {#if !connections.length && tab === 'connections'}
+      <p class="muted">Aucune connexion configurée. Ajoutez une interface ci-dessous.</p>
+    {/if}
+    <div class="tabs">
     <button class:active={tab === 'connections'} onclick={() => (tab = 'connections')}>Connexions</button>
     <button class:active={tab === 'ifaces'} onclick={() => (tab = 'ifaces')}>Interfaces</button>
     <button class="ghost" onclick={reapply}>Réappliquer</button>
@@ -285,8 +318,19 @@
 {#if msg}<p class="ok">{msg}</p>{/if}
 {#if error}<p class="err">{error}</p>{/if}
 
+<ConfirmModal
+  open={confirm.open}
+  title={confirm.title}
+  message={confirm.message}
+  variant={confirm.variant}
+  confirmLabel={confirm.confirmLabel}
+  onconfirm={handleConfirm}
+  oncancel={closeConfirm}
+/>
+
 <style>
   .hint { color: var(--bb-muted); font-size: 11px; margin-bottom: 10px; }
+  .muted { color: var(--bb-muted); font-size: 12px; margin-bottom: 8px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .tabs button.active { background: var(--bb-accent, #4a9eff); color: #fff; }
   .dns-row { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--bb-muted); margin-bottom: 12px; }

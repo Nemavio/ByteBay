@@ -12,6 +12,16 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
+function formatApiError(err, fallback) {
+  const raw = err?.error ?? err?.detail ?? err?.message
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) {
+    return raw.map((e) => e?.msg || JSON.stringify(e)).join(' · ')
+  }
+  if (raw && typeof raw === 'object') return JSON.stringify(raw)
+  return fallback || 'Erreur'
+}
+
 async function request(path, opts = {}) {
   const headers = { ...opts.headers }
   if (!(opts.body instanceof FormData)) {
@@ -26,7 +36,7 @@ async function request(path, opts = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || err.detail || res.statusText)
+    throw new Error(formatApiError(err, res.statusText))
   }
   if (res.status === 204) return null
   return res.json()
@@ -36,6 +46,7 @@ export const api = {
   login: (username, password) =>
     request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   me: () => request('/api/v1/auth/me'),
+  dashboard: () => request('/api/v1/dashboard'),
   disks: () => request('/api/v1/disks'),
   smart: (dev) => request(`/api/v1/disks/${encodeURIComponent(dev)}/smart`),
   smartAll: () => request('/api/v1/smart'),
@@ -43,12 +54,28 @@ export const api = {
   raid: () => request('/api/v1/raid'),
   raidDetail: (name) => request(`/api/v1/raid/${encodeURIComponent(name)}`),
   raidCreate: (body) => request('/api/v1/raid', { method: 'POST', body: JSON.stringify(body) }),
+  raidJob: (id) => request(`/api/v1/raid/jobs/${encodeURIComponent(id)}`),
+  housekeeping: () => request('/api/v1/housekeeping'),
+  recoverRaid: (uuid, force = true) =>
+    request('/api/v1/housekeeping/recover-raid', {
+      method: 'POST',
+      body: JSON.stringify({ uuid, force }),
+    }),
   raidAdd: (name, device) =>
     request(`/api/v1/raid/${encodeURIComponent(name)}/add`, {
       method: 'POST',
       body: JSON.stringify({ device }),
     }),
-  raidStop: (name) => request(`/api/v1/raid/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  raidSync: (name, action) =>
+    request(`/api/v1/raid/${encodeURIComponent(name)}/sync`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+  raidStop: (name, password) =>
+    request(`/api/v1/raid/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
   mounts: () => request('/api/v1/mounts'),
   mountCreate: (body) => request('/api/v1/mounts', { method: 'POST', body: JSON.stringify(body) }),
   mountJob: (id) => request(`/api/v1/mounts/jobs/${encodeURIComponent(id)}`),
@@ -84,5 +111,12 @@ export const api = {
     return res.json()
   },
   fileUrl: (path) => `/api/v1/files/download?path=${encodeURIComponent(path)}`,
-  health: () => request('/api/v1/health'),
+  logs: (since = '', sources = '') => {
+    const q = new URLSearchParams()
+    if (since) q.set('since', since)
+    if (sources) q.set('sources', sources)
+    const qs = q.toString()
+    return request(`/api/v1/logs${qs ? `?${qs}` : ''}`)
+  },
+  logSources: () => request('/api/v1/logs/sources'),
 }

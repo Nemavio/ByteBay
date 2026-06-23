@@ -4,12 +4,9 @@ services:
       context: ./engine
       dockerfile: Dockerfile
     privileged: true
-    ports:
-      - "${BYTEBAY_SAMBA_PORT:-445}:445"
-      - "139:139"
-      - "${BYTEBAY_NFS_PORT:-2049}:2049"
-      - "${BYTEBAY_FTP_PORT:-21}:21"
-      - "21100-21110:21100-21110"
+    # Réseau hôte : Samba/NFS/FTP écoutent directement sur le NAS.
+    # FTP passif sans pasv_address — l'IP annoncée = celle utilisée par le client (v4 ou v6).
+    network_mode: host
     volumes:
       - /run/bytebay:/var/bytebay/sockets
       - ${BYTEBAY_DATA_PATH:-/srv/bytebay}:/data

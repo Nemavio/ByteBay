@@ -1,9 +1,12 @@
 <script>
   import { api } from '../lib/api.js'
   import { useDesktop } from '../lib/desktop.js'
+  import { useWindowHost } from '../lib/windowHost.js'
+  import { poll, POLL_LIST_MS } from '../lib/poll.js'
   import SmartDetailApp from './SmartDetailApp.svelte'
 
   const desktop = useDesktop()
+  const host = useWindowHost()
 
   let disks = $state([])
   let alerts = $state([])
@@ -11,22 +14,26 @@
   let loading = $state(true)
   let error = $state('')
 
-  $effect(() => { refresh() })
-
-  async function refresh() {
-    loading = true
-    error = ''
+  async function refresh({ silent = false } = {}) {
+    if (!silent) loading = true
+    if (!silent) error = ''
     try {
       const [scan, al] = await Promise.all([api.smartAll(), api.smartAlerts()])
-      disks = scan.disks || []
+      disks = (scan.disks || []).filter((d) => d.available)
       lastScan = scan.last_scan || ''
       alerts = al.alerts || []
     } catch (e) {
-      error = e.message
+      if (!silent) error = e.message
     } finally {
-      loading = false
+      if (!silent) loading = false
     }
   }
+
+  $effect(() => {
+    refresh()
+    const stop = poll(() => refresh({ silent: true }), POLL_LIST_MS)
+    return stop
+  })
 
   function openDetail(name, device) {
     desktop.openCustomWindow({
@@ -35,6 +42,7 @@
       props: { device: name },
       w: 520,
       h: 480,
+      from: host,
     })
   }
 </script>
@@ -57,6 +65,8 @@
 
 {#if error}
   <p class="err">{error}</p>
+{:else if !disks.length && !loading}
+  <p class="muted empty">Aucun disque avec données SMART.</p>
 {:else}
   <table>
     <thead>
@@ -68,12 +78,12 @@
           <td><code>{d.device}</code></td>
           <td>{d.model || '—'}</td>
           <td>
-            <span class="badge" class:ok={d.healthy} class:warn={!d.healthy || !d.available}>
-              {!d.available ? 'N/A' : d.healthy ? 'Sain' : 'Dégradé'}
+            <span class="badge" class:ok={d.healthy} class:warn={!d.healthy}>
+              {d.healthy ? 'Sain' : 'Dégradé'}
             </span>
           </td>
           <td>{d.temp_c != null ? `${d.temp_c} °C` : '—'}</td>
-          <td><button class="ghost" onclick={() => openDetail(d.name, d.device)}>Détails</button></td>
+          <td><button class="ghost" onclick={(e) => { e.stopPropagation(); openDetail(d.name, d.device) }}>Détails</button></td>
         </tr>
       {/each}
     </tbody>
@@ -87,5 +97,6 @@
   .alerts h3 { font-size: 12px; margin-bottom: 8px; color: var(--bb-danger); }
   .alert { font-size: 12px; margin-bottom: 4px; }
   .err { color: var(--bb-danger); }
+  .empty { margin-top: 8px; font-size: 12px; }
   code { font-size: 11px; }
 </style>

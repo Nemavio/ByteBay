@@ -89,7 +89,7 @@ func normalizeSource(source string) string {
 	if !strings.HasPrefix(source, "/dev/") {
 		source = "/dev/" + strings.TrimPrefix(source, "/dev/")
 	}
-	return source
+	return resolveStaleMDSource(source)
 }
 
 func createMountOnly(req CreateRequest) (*MountPoint, error) {
@@ -152,10 +152,16 @@ func Remove(name string) error {
 			return fmt.Errorf("umount: %s: %w", strings.TrimSpace(string(out)), err)
 		}
 	}
+	if err := removeHostDir(target.HostPath); err != nil {
+		return err
+	}
 	return deleteState(name)
 }
 
 func Restore() error {
+	if err := MigrateRaidSources(); err != nil {
+		return err
+	}
 	list, err := loadState()
 	if err != nil {
 		return err
@@ -171,7 +177,7 @@ func Restore() error {
 		if opts == "" {
 			opts = "defaults"
 		}
-		if err := doMount(mp.Source, mp.HostPath, mp.Fstype, opts); err != nil {
+		if err := doMount(normalizeSource(mp.Source), mp.HostPath, mp.Fstype, opts); err != nil {
 			return fmt.Errorf("restore %s: %w", mp.Name, err)
 		}
 	}
@@ -192,6 +198,36 @@ func doMount(source, target, fstype, opts string) error {
 
 func isMounted(path string) bool {
 	return parseActiveMounts()[path]
+}
+
+// ActiveOnSource lists ByteBay mount names and a direct kernel mountpoint for a block device.
+func ActiveOnSource(source string) (mountNames []string, kernelMount string) {
+	source = normalizeSource(source)
+	list, _ := List()
+	for _, m := range list {
+		if normalizeSource(m.Source) == source && m.Mounted {
+			mountNames = append(mountNames, m.Name)
+		}
+	}
+	kernelMount = findDeviceMount(source)
+	return mountNames, kernelMount
+}
+
+func findDeviceMount(source string) string {
+	source = normalizeSource(source)
+	f, err := os.Open("/proc/mounts")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) >= 2 && fields[0] == source {
+			return fields[1]
+		}
+	}
+	return ""
 }
 
 func parseActiveMounts() map[string]bool {
@@ -226,6 +262,9 @@ func loadState() ([]MountPoint, error) {
 	var sf stateFile
 	if err := json.Unmarshal(b, &sf); err != nil {
 		return nil, err
+	}
+	if sf.Mounts == nil {
+		sf.Mounts = []MountPoint{}
 	}
 	return sf.Mounts, nil
 }
@@ -272,4 +311,102 @@ func deleteState(name string) error {
 		}
 	}
 	return saveState(next)
+}
+
+// CleanupForSource démonte et retire les points de montage liés à un périphérique.
+func CleanupForSource(source string) {
+	source = normalizeSource(source)
+	list, _ := loadState()
+	for _, m := range list {
+		if normalizeSource(m.Source) == source {
+			if err := Remove(m.Name); err != nil {
+				_ = removeHostDir(m.HostPath)
+				_ = deleteState(m.Name)
+			}
+		}
+	}
+}
+
+// PruneOrphans supprime les dossiers vides sous VolumesRoot sans entrée d'état.
+func PruneOrphans() {
+	known := map[string]bool{}
+	list, _ := loadState()
+	for _, m := range list {
+		known[m.Name] = true
+	}
+	entries, err := os.ReadDir(VolumesRoot())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || known[e.Name()] {
+			continue
+		}
+		p := filepath.Join(VolumesRoot(), e.Name())
+		if isMounted(p) {
+			continue
+		}
+		_ = os.Remove(p)
+	}
+}
+
+func removeHostDir(path string) error {
+	if path == "" || path == VolumesRoot() || !strings.HasPrefix(path, VolumesRoot()+string(os.PathSeparator)) {
+		return nil
+	}
+	if isMounted(path) {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	return nil
+}
+
+// MigrateRaidSources remplace les /dev/mdN obsolètes par des chemins stables by-id.
+func MigrateRaidSources() error {
+	list, err := loadState()
+	if err != nil {
+		return err
+	}
+	dirty := false
+	for i, mp := range list {
+		src := strings.TrimSpace(mp.Source)
+		if !strings.HasPrefix(src, "/dev/md") {
+			continue
+		}
+		if _, err := os.Stat(src); err == nil {
+			continue
+		}
+		uuid := inferUUIDFromLegacyMD(src)
+		if uuid != "" {
+			seedBindingFromLegacySource(src, uuid)
+		}
+		resolved := resolveStaleMDSource(src)
+		if resolved != src && resolved != "" {
+			list[i].Source = resolved
+			dirty = true
+		}
+	}
+	if dirty {
+		return saveState(list)
+	}
+	return nil
+}
+
+func inferUUIDFromLegacyMD(source string) string {
+	names := []string{}
+	entries, err := os.ReadDir("/sys/block")
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "md") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 1 {
+		return uuidFromMDName(names[0])
+	}
+	return ""
 }

@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException
 
 from app.auth import get_current_user
+from app.database import get_acl_for_user
 
 WEB_ROLES = ("none", "viewer", "admin")
 
@@ -37,3 +38,11 @@ def path_allowed(acl_rows, path: str, write: bool = False) -> bool:
                 return bool(row["can_read"] and row["can_write"])
             return bool(row["can_read"])
     return False
+
+
+async def check_file_access(user, db, path: str, write: bool = False):
+    if is_admin(user):
+        return
+    acl = await get_acl_for_user(db, user["username"])
+    if not path_allowed(acl, path, write):
+        raise HTTPException(403, "Access denied")

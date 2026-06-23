@@ -63,6 +63,19 @@ func StartJob(req CreateRequest) (*Job, error) {
 	return job.public(), nil
 }
 
+func ListActiveJobs() []*Job {
+	jobsMu.RLock()
+	defer jobsMu.RUnlock()
+	var out []*Job
+	for _, j := range jobs {
+		if j.Status == JobDone || j.Status == JobError {
+			continue
+		}
+		out = append(out, j.public())
+	}
+	return out
+}
+
 func GetJob(id string) (*Job, error) {
 	jobsMu.RLock()
 	job, ok := jobs[id]

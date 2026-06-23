@@ -6,13 +6,10 @@ import (
 )
 
 func ReloadNFS() string {
-	if err := run("exportfs", "-ra"); err != nil {
-		if err := run("supervisorctl", "restart", "nfs"); err != nil {
-			return "config written (nfs reload failed)"
-		}
-		return "supervisor nfs restarted"
+	if err := run("supervisorctl", "restart", "ganesha"); err != nil {
+		return "config written (ganesha restart failed)"
 	}
-	return "exportfs -ra ok"
+	return "ganesha restarted"
 }
 
 func ReloadSamba() string {
@@ -26,7 +23,7 @@ func ReloadSamba() string {
 }
 
 func ReloadFTP() string {
-	if err := run("supervisorctl", "restart", "vsftpd"); err != nil {
+	if err := run("supervisorctl", "restart", "vsftpd", "vsftpd-ipv6"); err != nil {
 		return "config written (vsftpd reload failed)"
 	}
 	return "vsftpd restarted"
