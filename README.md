@@ -15,29 +15,35 @@ ByteBay is a home NAS management stack originally built for a **[Kobol Helios64]
 
 ### Connexion · Login
 
-<p align="center">
-  <img src="docs/images/login_screen.png" alt="Écran de connexion ByteBay" width="640">
-</p>
+<div align="center">
 
-<p align="center"><em>Page de connexion au panel d'administration — administration panel login.</em></p>
+![Écran de connexion ByteBay](docs/images/login_screen.png?raw=true)
+
+*Page de connexion au panel d'administration — administration panel login.*
+
+</div>
 
 ### Bureau · Desktop
 
-<p align="center">
-  <img src="docs/images/window1.png" alt="Partages NFS, utilisateurs, droits d'accès et RAID" width="900">
-</p>
+<div align="center">
 
-<p align="center"><em>Multi-fenêtres : partages NFS, comptes unifiés, ACL et état RAID.</em><br>
-<em>Multi-window desktop: NFS shares, unified accounts, ACLs, and RAID status.</em></p>
+![Partages NFS, utilisateurs, droits d'accès et RAID](docs/images/window1.png?raw=true)
+
+*Multi-fenêtres : partages NFS, comptes unifiés, ACL et état RAID.*  
+*Multi-window desktop: NFS shares, unified accounts, ACLs, and RAID status.*
+
+</div>
 
 ### Tableau de bord · Dashboard
 
-<p align="center">
-  <img src="docs/images/window2.png" alt="Tableau de bord, journaux et explorateur de fichiers" width="900">
-</p>
+<div align="center">
 
-<p align="center"><em>Services, CPU, montages, journaux en direct et explorateur de fichiers.</em><br>
-<em>Services, CPU, mounts, live logs, and file explorer.</em></p>
+![Tableau de bord, journaux et explorateur de fichiers](docs/images/window2.png?raw=true)
+
+*Services, CPU, montages, journaux en direct et explorateur de fichiers.*  
+*Services, CPU, mounts, live logs, and file explorer.*
+
+</div>
 
 ---
 
