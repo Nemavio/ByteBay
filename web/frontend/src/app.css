@@ -1,0 +1,88 @@
+:root {
+  --bb-bg: #0a1628;
+  --bb-panel: #1a2d4a;
+  --bb-accent: #3d9be9;
+  --bb-accent-dim: #2a6fad;
+  --bb-text: #e8f0fa;
+  --bb-muted: #8ba3c0;
+  --bb-danger: #e74c5c;
+  --bb-ok: #3dd68c;
+  --bb-taskbar: rgba(10, 22, 40, 0.92);
+  --bb-window: #1e3352;
+  --bb-titlebar: #152a45;
+  --bb-border: #2d4a6e;
+  --bb-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: var(--bb-text);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+}
+
+#app {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* Extensions (Bitwarden, etc.) au-dessus du chrome ByteBay */
+body > [class*='bit-'],
+body > [id^='bit-'],
+body > .cdk-overlay-container,
+[data-bitwarden-watching] {
+  z-index: 2147483646 !important;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  background: var(--bb-accent);
+  color: #fff;
+}
+button:hover { background: var(--bb-accent-dim); }
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--bb-border);
+  color: var(--bb-text);
+}
+button.danger { background: var(--bb-danger); }
+
+input, select, textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bb-border);
+  background: var(--bb-bg);
+  color: var(--bb-text);
+  width: 100%;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bb-border);
+}
+th { color: var(--bb-muted); font-weight: 500; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 12px;
+}
+.badge.ok { background: rgba(61, 214, 140, 0.2); color: var(--bb-ok); }
+.badge.warn { background: rgba(231, 76, 92, 0.2); color: var(--bb-danger); }

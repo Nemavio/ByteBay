@@ -1,0 +1,50 @@
+services:
+  engine:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    privileged: true
+    ports:
+      - "${BYTEBAY_SAMBA_PORT:-445}:445"
+      - "139:139"
+      - "${BYTEBAY_NFS_PORT:-2049}:2049"
+      - "${BYTEBAY_FTP_PORT:-21}:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - /run/bytebay:/var/bytebay/sockets
+      - ${BYTEBAY_DATA_PATH:-/srv/bytebay}:/data
+      - ${BYTEBAY_VOLUMES_PATH:-/srv/bytebay-volumes}:/volumes:rslave
+      - engine-state:/var/lib/bytebay
+    environment:
+      BYTEBAY_ENGINE_TOKEN: ${BYTEBAY_ENGINE_TOKEN:-}
+    restart: unless-stopped
+    mem_limit: 256m
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      - engine
+    ports:
+      - "${BYTEBAY_WEB_PORT:-8080}:8080"
+    volumes:
+      - bytebay-data:/data
+      - /run/bytebay:/var/bytebay/sockets
+    environment:
+      BYTEBAY_DB: /data/bytebay.db
+      BYTEBAY_AGENT_SOCKET: /var/bytebay/sockets/agent.sock
+      BYTEBAY_ENGINE_SOCKET: /var/bytebay/sockets/engine.sock
+      BYTEBAY_SECRET_KEY: ${BYTEBAY_SECRET_KEY:-dev-secret-change-me}
+      BYTEBAY_ADMIN_USER: ${BYTEBAY_ADMIN_USER:-admin}
+      BYTEBAY_ADMIN_PASSWORD: ${BYTEBAY_ADMIN_PASSWORD:-admin}
+      BYTEBAY_AGENT_TOKEN: ${BYTEBAY_AGENT_TOKEN:-}
+      BYTEBAY_ENGINE_TOKEN: ${BYTEBAY_ENGINE_TOKEN:-}
+    group_add:
+      - "${BYTEBAY_GID:-999}"
+    restart: unless-stopped
+    mem_limit: 128m
+
+volumes:
+  bytebay-data:
+  engine-state:

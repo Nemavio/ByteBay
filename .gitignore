@@ -1,0 +1,81 @@
+# --- Secrets & environment ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials.json
+
+# --- Build artifacts ---
+**/dist/
+**/build/
+**/node_modules/
+agent/bytebay-agent
+engine/bytebay-engine
+web/backend/static/assets/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# --- Python ---
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# --- Data & runtime (never commit live NAS data) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/data/
+bytebay-data/
+engine-state/
+/run/
+*.sock
+
+# --- IDE & editor (local only) ---
+.cursor/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- OS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Logs & temp ---
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# --- Docker local overrides ---
+docker-compose.override.yml
+docker-compose.local.yml
+
+# --- Coverage & test output ---
+coverage/
+htmlcov/
+.nyc_output/
+*.lcov

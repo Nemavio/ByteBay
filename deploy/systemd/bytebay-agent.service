@@ -1,0 +1,20 @@
+[Unit]
+Description=ByteBay host agent (RAID, SMART, shares)
+After=network.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bytebay-agent -socket /run/bytebay/agent.sock
+EnvironmentFile=-/etc/bytebay/agent.env
+RuntimeDirectory=bytebay
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=5
+
+# Needs root for mdadm, smartctl, writing share configs
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

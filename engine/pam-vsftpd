@@ -1,0 +1,6 @@
+# FTP-only users use /usr/sbin/nologin; pam_shells would reject them (530 Login incorrect).
+auth	required	pam_listfile.so item=user sense=deny file=/etc/ftpusers onerr=succeed
+
+@include common-account
+@include common-session
+@include common-auth
